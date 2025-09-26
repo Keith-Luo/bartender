@@ -37,7 +37,7 @@ def log_rerun_data(observation: dict[str | Any], action: dict[str | Any]):
                 for i, v in enumerate(val):
                     rr.log(f"observation.{obs}_{i}", rr.Scalar(float(v)))
             else:
-                rr.log(f"observation.{obs}", rr.Image(val), static=True)
+                rr.log(f"observation.{obs}", rr.Image(val))
     for act, val in action.items():
         if isinstance(val, float):
             rr.log(f"action.{act}", rr.Scalar(val))
