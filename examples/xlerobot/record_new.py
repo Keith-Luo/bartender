@@ -14,6 +14,45 @@ from lerobot.utils.visualization_utils import _init_rerun, log_rerun_data
 from lerobot.cameras.opencv.configuration_opencv import OpenCVCameraConfig
 
 
+def move_robot_to_zero_position(robot, arm_selection="both"):
+    """
+    Move robot arms to zero position (all joints at 0 degrees).
+    
+    Args:
+        robot: XLerobotClient instance
+        arm_selection: "left", "right", or "both" - which arms to reset
+    """
+    zero_action = {}
+    
+    # Define zero positions for arms
+    if arm_selection in ["right", "both"]:
+        zero_action.update({
+            "right_arm_shoulder_pan.pos": 0.0,
+            "right_arm_shoulder_lift.pos": 0.0,
+            "right_arm_elbow_flex.pos": 0.0,
+            "right_arm_wrist_flex.pos": 0.0,
+            "right_arm_wrist_roll.pos": 0.0,
+            "right_arm_gripper.pos": 0.0,
+        })
+    
+    if arm_selection in ["left", "both"]:
+        zero_action.update({
+            "left_arm_shoulder_pan.pos": 0.0,
+            "left_arm_shoulder_lift.pos": 0.0,
+            "left_arm_elbow_flex.pos": 0.0,
+            "left_arm_wrist_flex.pos": 0.0,
+            "left_arm_wrist_roll.pos": 0.0,
+            "left_arm_gripper.pos": 0.0,
+        })
+    
+    # Send the zero position command
+    log_say(f"Moving {arm_selection} arm(s) to zero position...")
+    robot.send_action(zero_action)
+    
+    # Wait for robot to reach zero position
+    time.sleep(1.0)  # Give robot time to move to zero position
+
+
 def record_loop_with_joycon_episode_control(
     robot,
     events: dict,
@@ -159,6 +198,9 @@ listener, events = init_keyboard_listener()
 if not robot.is_connected or not joycon_teleop.is_connected:
     raise ValueError("Robot or Joy-Con is not connected!")
 
+# Move to zero position at the start
+move_robot_to_zero_position(robot, arm_selection=joycon_config.arm_selection)
+
 recorded_episodes = 0
 while recorded_episodes < NUM_EPISODES and not events["stop_recording"]:
     log_say(f"Recording episode {recorded_episodes}")
@@ -198,8 +240,14 @@ while recorded_episodes < NUM_EPISODES and not events["stop_recording"]:
         dataset.clear_episode_buffer()
         continue
 
+    # Save the episode
     dataset.save_episode()
     recorded_episodes += 1
+    
+    # Move to zero position after each episode (except the last one)
+    if recorded_episodes < NUM_EPISODES and not events["stop_recording"]:
+        log_say(f"Episode {recorded_episodes - 1} completed. Moving to zero position for next episode...")
+        move_robot_to_zero_position(robot, arm_selection=joycon_config.arm_selection)
 
 # Upload to hub and clean up
 dataset.push_to_hub()
