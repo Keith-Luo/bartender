@@ -33,6 +33,14 @@ except ImportError:
     JOYCON_AVAILABLE = False
     logger.warning("joyconrobotics not available. Install it with 'pip install joyconrobotics'")
 
+# Import SO101 Kinematics for inverse kinematics
+try:
+    from lerobot.model.SO101Robot import SO101Kinematics
+    IK_AVAILABLE = True
+except ImportError:
+    IK_AVAILABLE = False
+    logger.warning("SO101Kinematics not available. IK will use simplified mapping.")
+
 
 class FixedAxesJoyconRobotics(JoyconRobotics):
     """Extended JoyconRobotics class with fixed axes and additional features for teleop"""
@@ -184,6 +192,16 @@ class JoyConTeleop(Teleoperator):
         self.current_base_speed = 0.0
         self.last_update_time = time.time()
         self.is_accelerating = False
+        
+        # Initialize inverse kinematics for both arms
+        if IK_AVAILABLE:
+            self.right_arm_kinematics = SO101Kinematics()
+            self.left_arm_kinematics = SO101Kinematics()
+            logger.info("Inverse kinematics initialized for both arms")
+        else:
+            self.right_arm_kinematics = None
+            self.left_arm_kinematics = None
+            logger.warning("Inverse kinematics not available, using simplified mapping")
 
     @property
     def action_features(self) -> dict:
@@ -341,8 +359,7 @@ class JoyConTeleop(Teleoperator):
         return action
 
     def _get_arm_actions(self, pose_right, pose_left):
-        """Convert Joy-Con poses to arm actions"""
-        # 对应原来 xlerobot_teleop_joycon 里的 handle_joycon_input
+        """Convert Joy-Con poses to arm actions using inverse kinematics"""
         actions = {}
         
         # 根据配置决定控制哪个手臂
@@ -352,10 +369,10 @@ class JoyConTeleop(Teleoperator):
         if pose_right is not None and control_right_arm:
             x, y, z, roll_, pitch_, yaw = pose_right
             
-            # Calculate pitch control - consistent with original teleop code
+            # Calculate pitch control - consistent with 7_xlerobot_teleop_joycon.py
             pitch = -pitch_ * 60 + 10
             
-            # Set coordinates
+            # Set end-effector coordinates
             current_x = 0.1629 + x
             current_y = 0.1131 + z
             
@@ -367,10 +384,26 @@ class JoyConTeleop(Teleoperator):
             actions["right_arm_shoulder_pan.pos"] = y * y_scale
             
             # Use inverse kinematics for shoulder_lift and elbow_flex
-            # This is a simplified version - you may need to integrate actual IK
-            actions["right_arm_shoulder_lift.pos"] = current_x * 100  # Simplified mapping
-            actions["right_arm_elbow_flex.pos"] = current_y * 100     # Simplified mapping
-            actions["right_arm_wrist_flex.pos"] = pitch
+            if self.right_arm_kinematics is not None:
+                try:
+                    shoulder_lift, elbow_flex = self.right_arm_kinematics.inverse_kinematics(current_x, current_y)
+                    actions["right_arm_shoulder_lift.pos"] = shoulder_lift
+                    actions["right_arm_elbow_flex.pos"] = elbow_flex
+                    
+                    # wrist_flex calculation considers the entire kinematic chain
+                    actions["right_arm_wrist_flex.pos"] = -shoulder_lift - elbow_flex + pitch
+                except Exception as e:
+                    logger.error(f"Right arm IK failed: {e}, using simplified mapping")
+                    # Fallback to simplified mapping
+                    actions["right_arm_shoulder_lift.pos"] = current_x * 100
+                    actions["right_arm_elbow_flex.pos"] = current_y * 100
+                    actions["right_arm_wrist_flex.pos"] = pitch
+            else:
+                # Simplified mapping when IK is not available
+                actions["right_arm_shoulder_lift.pos"] = current_x * 100
+                actions["right_arm_elbow_flex.pos"] = current_y * 100
+                actions["right_arm_wrist_flex.pos"] = pitch
+            
             actions["right_arm_wrist_roll.pos"] = roll
             
         if pose_left is not None and control_left_arm:
@@ -379,7 +412,7 @@ class JoyConTeleop(Teleoperator):
             # Calculate pitch control
             pitch = -pitch_ * 60 + 10
             
-            # Set coordinates  
+            # Set end-effector coordinates
             current_x = 0.1629 + x
             current_y = 0.1131 + z
             
@@ -391,9 +424,26 @@ class JoyConTeleop(Teleoperator):
             actions["left_arm_shoulder_pan.pos"] = y * y_scale
             
             # Use inverse kinematics for shoulder_lift and elbow_flex
-            actions["left_arm_shoulder_lift.pos"] = current_x * 100   # Simplified mapping
-            actions["left_arm_elbow_flex.pos"] = current_y * 100      # Simplified mapping
-            actions["left_arm_wrist_flex.pos"] = pitch
+            if self.left_arm_kinematics is not None:
+                try:
+                    shoulder_lift, elbow_flex = self.left_arm_kinematics.inverse_kinematics(current_x, current_y)
+                    actions["left_arm_shoulder_lift.pos"] = shoulder_lift
+                    actions["left_arm_elbow_flex.pos"] = elbow_flex
+                    
+                    # wrist_flex calculation considers the entire kinematic chain
+                    actions["left_arm_wrist_flex.pos"] = -shoulder_lift - elbow_flex + pitch
+                except Exception as e:
+                    logger.error(f"Left arm IK failed: {e}, using simplified mapping")
+                    # Fallback to simplified mapping
+                    actions["left_arm_shoulder_lift.pos"] = current_x * 100
+                    actions["left_arm_elbow_flex.pos"] = current_y * 100
+                    actions["left_arm_wrist_flex.pos"] = pitch
+            else:
+                # Simplified mapping when IK is not available
+                actions["left_arm_shoulder_lift.pos"] = current_x * 100
+                actions["left_arm_elbow_flex.pos"] = current_y * 100
+                actions["left_arm_wrist_flex.pos"] = pitch
+            
             actions["left_arm_wrist_roll.pos"] = roll
             
         return actions
