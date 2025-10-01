@@ -110,7 +110,7 @@ class FixedAxesJoyconRobotics(JoyconRobotics):
             if (self.joycon.is_right() and event_type == 'plus' and status == 1) or (self.joycon.is_left() and event_type == 'minus' and status == 1):
                 # TODO: 这里可能和想要把这个键设置成保存并录制下一条数据相冲突，可能需要修改
                 self.reset_button = 1
-                self.reset_joycon()
+                # self.reset_joycon()
             elif self.joycon.is_right() and event_type == 'a':
                 # 下一条 episode
                 # TODO：似乎按下 a 才是下一条 episode？
@@ -164,6 +164,7 @@ class FixedAxesJoyconRobotics(JoyconRobotics):
                 self.button_control = -1
             elif self.reset_button == 1:
                 # 按下 + 号
+                logger.info("debug1")
                 self.button_control = 8
             else:
                 self.button_control = 0
@@ -347,6 +348,7 @@ class JoyConTeleop(Teleoperator):
             # TODO: 需要实际连接Joy-Con测试确定"+"键的确切数值
             if control_button_right == 8:  # next episode，按下 "+" 号键
                 logger.info("Next-episode button ('+') pressed")
+                logger.info("debug2")
                 action["_episode_control"] = "next"
             # 移除重录功能，只保留 next episode
             # elif control_button_right == -1:  # restart episode

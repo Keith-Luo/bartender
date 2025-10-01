@@ -95,26 +95,10 @@ TASK_DESCRIPTION = "My task description"
 # 选择要使用的相机（注释掉不需要的相机）
 camera_config = {
     "left_arm_wrist": OpenCVCameraConfig(index_or_path=0, width=640, height=480, fps=30),
-    # "right_arm_wrist": OpenCVCameraConfig(index_or_path=6, width=640, height=480, fps=30),  # 注释掉不录制
+    "right_arm_wrist": OpenCVCameraConfig(index_or_path=6, width=640, height=480, fps=30),  # 注释掉不录制
     "head": OpenCVCameraConfig(index_or_path=8, width=640, height=480, fps=30),
 }
 
-# 或者创建不同的配置
-# 方案1：只录制左臂相机
-# camera_config = {
-#     "left_arm_wrist": OpenCVCameraConfig(index_or_path=0, width=640, height=480, fps=30),
-# }
-
-# 方案2：只录制头部相机  
-# camera_config = {
-#     "head": OpenCVCameraConfig(index_or_path=8, width=640, height=480, fps=30),
-# }
-
-# 方案3：高分辨率配置
-# camera_config = {
-#     "left_arm_wrist": OpenCVCameraConfig(index_or_path=0, width=1280, height=720, fps=30),
-#     "head": OpenCVCameraConfig(index_or_path=8, width=1920, height=1080, fps=30),
-# }
 robot_config = XLerobotClientConfig(remote_ip="127.0.0.1", id="xlerobot", cameras=camera_config)
 robot = XLerobotClient(robot_config)
 
