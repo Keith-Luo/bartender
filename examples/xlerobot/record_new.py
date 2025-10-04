@@ -6,7 +6,7 @@ from lerobot.datasets.lerobot_dataset import LeRobotDataset
 from lerobot.datasets.utils import hw_to_dataset_features
 from lerobot.record import record_loop, build_dataset_frame
 from lerobot.robots.xlerobot import XLerobotClient, XLerobotClientConfig
-from lerobot.teleoperators.joycon import JoyConTeleop, JoyconTeleopConfig
+from lerobot.teleoperators.joycon import JoyConTeleop, JoyconTeleopConfig, FixedAxesJoyconRobotics
 from lerobot.utils.robot_utils import busy_wait
 from lerobot.utils.utils import log_say
 from lerobot.utils.control_utils import init_keyboard_listener
@@ -14,43 +14,27 @@ from lerobot.utils.visualization_utils import _init_rerun, log_rerun_data
 from lerobot.cameras.opencv.configuration_opencv import OpenCVCameraConfig
 
 
-def move_robot_to_zero_position(robot, arm_selection="both"):
+def move_robot_to_zero_position(robot, teleop: JoyConTeleop):
     """
-    Move robot arms to zero position (all joints at 0 degrees).
-    
-    Args:
-        robot: XLerobotClient instance
-        arm_selection: "left", "right", or "both" - which arms to reset
+    Reset robot to zero position by updating teleop position and sending action.
     """
-    zero_action = {}
+    # Reset teleop positions to their offsets (zero position)
+    if teleop.joycon_left is not None:
+        teleop.joycon_left.position = teleop.joycon_left.offset_position_m.copy()
+    if teleop.joycon_right is not None:
+        teleop.joycon_right.position = teleop.joycon_right.offset_position_m.copy()
     
-    # Define zero positions for arms
-    if arm_selection in ["right", "both"]:
-        zero_action.update({
-            "right_arm_shoulder_pan.pos": 0.0,
-            "right_arm_shoulder_lift.pos": 0.0,
-            "right_arm_elbow_flex.pos": 0.0,
-            "right_arm_wrist_flex.pos": 0.0,
-            "right_arm_wrist_roll.pos": 0.0,
-            "right_arm_gripper.pos": 0.0,
-        })
+    # Get the action from teleop (which now reflects zero position)
+    action = teleop.get_action()
     
-    if arm_selection in ["left", "both"]:
-        zero_action.update({
-            "left_arm_shoulder_pan.pos": 0.0,
-            "left_arm_shoulder_lift.pos": 0.0,
-            "left_arm_elbow_flex.pos": 0.0,
-            "left_arm_wrist_flex.pos": 0.0,
-            "left_arm_wrist_roll.pos": 0.0,
-            "left_arm_gripper.pos": 0.0,
-        })
+    # Remove episode control signal if present
+    if "_episode_control" in action:
+        del action["_episode_control"]
     
-    # Send the zero position command
-    log_say(f"Moving {arm_selection} arm(s) to zero position...")
-    robot.send_action(zero_action)
+    # Send the zero position action to robot
+    robot.send_action(action)
+    log_say("Robot moved to zero position")
     
-    # Wait for robot to reach zero position
-    time.sleep(1.0)  # Give robot time to move to zero position
 
 
 def record_loop_with_joycon_episode_control(
@@ -127,7 +111,7 @@ def record_loop_with_joycon_episode_control(
 NUM_EPISODES = 3
 FPS = 30
 EPISODE_TIME_SEC = 30
-RESET_TIME_SEC = 10
+RESET_TIME_SEC = 5
 # TODO
 TASK_DESCRIPTION = "My task description"
 
@@ -199,7 +183,7 @@ if not robot.is_connected or not joycon_teleop.is_connected:
     raise ValueError("Robot or Joy-Con is not connected!")
 
 # Move to zero position at the start
-move_robot_to_zero_position(robot, arm_selection=joycon_config.arm_selection)
+move_robot_to_zero_position(robot, joycon_teleop)
 
 recorded_episodes = 0
 while recorded_episodes < NUM_EPISODES and not events["stop_recording"]:
@@ -223,15 +207,7 @@ while recorded_episodes < NUM_EPISODES and not events["stop_recording"]:
         (recorded_episodes < NUM_EPISODES - 1) or events["rerecord_episode"]
     ):
         log_say("Reset the environment")
-        record_loop_with_joycon_episode_control(
-            robot=robot,
-            events=events,
-            fps=FPS,
-            teleop=joycon_teleop,
-            control_time_s=RESET_TIME_SEC,
-            single_task=TASK_DESCRIPTION,
-            display_data=True,
-        )
+        move_robot_to_zero_position(robot, joycon_teleop)
 
     if events["rerecord_episode"]:
         log_say("Re-record episode")
@@ -243,11 +219,6 @@ while recorded_episodes < NUM_EPISODES and not events["stop_recording"]:
     # Save the episode
     dataset.save_episode()
     recorded_episodes += 1
-    
-    # Move to zero position after each episode (except the last one)
-    if recorded_episodes < NUM_EPISODES and not events["stop_recording"]:
-        log_say(f"Episode {recorded_episodes - 1} completed. Moving to zero position for next episode...")
-        move_robot_to_zero_position(robot, arm_selection=joycon_config.arm_selection)
 
 # Upload to hub and clean up
 dataset.push_to_hub()

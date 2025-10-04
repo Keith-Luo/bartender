@@ -194,6 +194,10 @@ class JoyConTeleop(Teleoperator):
         self.last_update_time = time.time()
         self.is_accelerating = False
         
+        self.current_x = 0.1629
+        self.current_y = 0.1131
+        self.pitch = 0.0
+        
         # Initialize inverse kinematics for both arms
         if IK_AVAILABLE:
             self.right_arm_kinematics = SO101Kinematics()

@@ -15,4 +15,4 @@
 # limitations under the License.
 
 from .configuration_joycon import JoyconTeleopConfig
-from .teleop_joycon import JoyConTeleop
+from .teleop_joycon import JoyConTeleop, FixedAxesJoyconRobotics

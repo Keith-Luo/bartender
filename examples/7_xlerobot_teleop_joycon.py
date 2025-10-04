@@ -244,7 +244,7 @@ class SimpleTeleopArm:
         # Calculate roll - consistent with 6_so100_joycon_ee_control.py
         roll = roll_ * 45
         
-        print(f"[{self.prefix}] pitch: {pitch}")
+        # print(f"[{self.prefix}] pitch: {pitch}")
         
         # Add y value to control shoulder_pan joint - consistent with 6_so100_joycon_ee_control.py
         y_scale = 250.0  # Scaling factor, can be adjusted as needed
@@ -289,7 +289,7 @@ class SimpleHeadControl:
         self.zero_pos = {"head_motor_1": 0.0, "head_motor_2": 0.0}
 
     def move_to_zero_position(self, robot):
-        print("[HEAD] Moving to Zero Position: {self.zero_pos} ......")
+        print(f"[HEAD] Moving to Zero Position: {self.zero_pos} ......")
         self.target_positions = self.zero_pos.copy()
         action = self.p_control_action(robot)
         robot.send_action(action)
@@ -468,9 +468,9 @@ def main():
     try:
         while True:
             pose_right, gripper_right, control_button_right = joycon_right.get_control()
-            print(f"pose_right: {pose_right}, gripper_right: {gripper_right}, control_button_right: {control_button_right}")
+            # print(f"pose_right: {pose_right}, gripper_right: {gripper_right}, control_button_right: {control_button_right}")
             pose_left, gripper_left, control_button_left = joycon_left.get_control()
-            print(f"pose_left: {pose_left}, gripper_left: {gripper_left}, control_button_left: {control_button_left}")
+            # print(f"pose_left: {pose_left}, gripper_left: {gripper_left}, control_button_left: {control_button_left}")
 
             if control_button_right == 8:  # reset button
                 print("[MAIN] Reset to zero position!")
