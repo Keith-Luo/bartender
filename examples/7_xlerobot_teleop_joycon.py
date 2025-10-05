@@ -57,7 +57,7 @@ class FixedAxesJoyconRobotics(JoyconRobotics):
             self.joycon_stick_v_0 = 1900
             self.joycon_stick_h_0 = 2100
         else:  # left Joy-Con
-            self.joycon_stick_v_0 = 2300
+            self.joycon_stick_v_0 = 1900
             self.joycon_stick_h_0 = 2000
         
         # Gripper control related variables

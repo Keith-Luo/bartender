@@ -53,7 +53,7 @@ class FixedAxesJoyconRobotics(JoyconRobotics):
             self.joycon_stick_v_0 = 1900
             self.joycon_stick_h_0 = 2100
         else:  # left Joy-Con
-            self.joycon_stick_v_0 = 2300
+            self.joycon_stick_v_0 = 1900
             self.joycon_stick_h_0 = 2000
         
         # Gripper control related variables
@@ -107,17 +107,20 @@ class FixedAxesJoyconRobotics(JoyconRobotics):
         
         # Button events handling
         for event_type, status in self.button.events():
-            if (self.joycon.is_right() and event_type == 'plus' and status == 1) or (self.joycon.is_left() and event_type == 'minus' and status == 1):
-                # TODO: 这里可能和想要把这个键设置成保存并录制下一条数据相冲突，可能需要修改
+            if self.joycon.is_right() and event_type == 'plus' and status == 1:
+                # 右手柄 "+" 键：结束当前 episode 并进入下一条
                 self.reset_button = 1
                 # self.reset_joycon()
+            elif self.joycon.is_left() and event_type == 'minus' and status == 1:
+                # 左手柄 "-" 键：重录当前 episode
+                self.restart_episode_button = status
             elif self.joycon.is_right() and event_type == 'a':
                 # 下一条 episode
                 # TODO：似乎按下 a 才是下一条 episode？
                 self.next_episode_button = status
-            elif self.joycon.is_right() and event_type == 'y':
-                # 重新录制这一条 episode
-                self.restart_episode_button = status
+            # elif self.joycon.is_right() and event_type == 'y':
+            #     # 重新录制这一条 episode（暂时保留，可能不使用）
+            #     self.restart_episode_button = status
             else: 
                 self.reset_button = 0
         
@@ -168,6 +171,14 @@ class FixedAxesJoyconRobotics(JoyconRobotics):
                 self.button_control = 8
             else:
                 self.button_control = 0
+        elif self.joycon.is_left():
+            # 左手柄的控制
+            if self.restart_episode_button == 1:
+                # 按下 - 号：重录当前 episode
+                logger.info("Left Joy-Con minus button pressed: restart episode")
+                self.button_control = -2  # 使用 -2 作为左手柄重录信号
+            else:
+                self.button_control = 0
         
         return self.position, self.gripper_state, self.button_control
 
@@ -197,6 +208,18 @@ class JoyConTeleop(Teleoperator):
         self.current_x = 0.1629
         self.current_y = 0.1131
         self.pitch = 0.0
+        
+        # Head control state - maintain target positions like SimpleHeadControl
+        # This ensures head position is maintained across get_action() calls
+        self.head_target_positions = {
+            "head_motor_1": 0.0,  # Will be set by set_head_zero_position()
+            "head_motor_2": 0.0,  # Will be set by set_head_zero_position()
+        }
+        self.head_zero_pos = {
+            "head_motor_1": 0.0,   # Default yaw
+            "head_motor_2": -55.0,  # Default pitch: look down at workspace
+        }
+        self.head_degree_step = 2.0
         
         # Initialize inverse kinematics for both arms
         if IK_AVAILABLE:
@@ -267,6 +290,23 @@ class JoyConTeleop(Teleoperator):
     def is_calibrated(self) -> bool:
         """Joy-Con controllers don't require calibration"""
         return True
+    
+    def set_head_zero_position(self, head_pitch: float = -30.0, head_yaw: float = 0.0):
+        """
+        Set the head zero position (the position to return to when reset).
+        Also sets current target positions to this zero position.
+        
+        Args:
+            head_pitch: Pitch angle in degrees (negative = look down), default -30°
+            head_yaw: Yaw angle in degrees, default 0°
+        """
+        self.head_zero_pos = {
+            "head_motor_1": head_yaw,
+            "head_motor_2": head_pitch,
+        }
+        # Set current target to zero position
+        self.head_target_positions = self.head_zero_pos.copy()
+        logger.info(f"Head zero position set to: pitch={head_pitch}°, yaw={head_yaw}°")
 
     def connect(self) -> None:
         """Connect to Joy-Con controllers"""
@@ -346,18 +386,24 @@ class JoyConTeleop(Teleoperator):
                 action.update(head_action)
                 
             # Handle special episode control buttons
-            # Note: control_button_right values from joyconrobotics library:
-            # "+" button (plus) = 2 (需要实际测试确认)
-            # "A" button = 1, "Y" button = different value
-            # TODO: 需要实际连接Joy-Con测试确定"+"键的确切数值
-            if control_button_right == 8:  # next episode，按下 "+" 号键
-                logger.info("Next-episode button ('+') pressed")
+            # Note: control_button values from joyconrobotics library:
+            # Right Joy-Con:
+            #   "+" button (plus) = 8 (next episode)
+            #   "A" button = 1
+            #   "Y" button = -1
+            # Left Joy-Con:
+            #   "-" button (minus) = -2 (restart episode)
+            
+            # Check right Joy-Con control
+            if control_button_right == 8:  # next episode，按下右手柄 "+" 号键
+                logger.info("Next-episode button ('+') pressed on right Joy-Con")
                 logger.info("debug2")
                 action["_episode_control"] = "next"
-            # 移除重录功能，只保留 next episode
-            # elif control_button_right == -1:  # restart episode
-            #     logger.info("Restart-episode button pressed") 
-            #     action["_episode_control"] = "restart"
+            
+            # Check left Joy-Con control  
+            if control_button_left == -2:  # restart episode，按下左手柄 "-" 号键
+                logger.info("Restart-episode button ('-') pressed on left Joy-Con")
+                action["_episode_control"] = "restart"
                 
         except Exception as e:
             logger.error(f"Error getting Joy-Con action: {e}")
@@ -519,32 +565,41 @@ class JoyConTeleop(Teleoperator):
         return self.current_base_speed
 
     def _get_head_action(self, joycon):
-        """Handle left Joy-Con directional pad input to control head motors"""
-        # This is a simplified version - you may want to maintain state
-        actions = {}
+        """
+        Handle left Joy-Con directional pad input to control head motors.
+        Maintains target_positions state like SimpleHeadControl in 7_xlerobot_teleop_joycon.py.
+        Returns target positions (not increments) so position is maintained across calls.
+        """
+        # Get left Joy-Con directional pad state
+        button_up = joycon.joycon.get_button_up()      # Up: head_motor_2+ (pitch up)
+        button_down = joycon.joycon.get_button_down()  # Down: head_motor_2- (pitch down)
+        button_left = joycon.joycon.get_button_left()  # Left: head_motor_1+ (yaw left)
+        button_right = joycon.joycon.get_button_right() # Right: head_motor_1- (yaw right)
         
-        button_up = joycon.joycon.get_button_up()      # Up: head_motor_1+
-        button_down = joycon.joycon.get_button_down()  # Down: head_motor_1-
-        button_left = joycon.joycon.get_button_left()  # Left: head_motor_2+
-        button_right = joycon.joycon.get_button_right() # Right: head_motor_2-
-        
-        degree_step = 2.0
-        
+        # Update target positions based on button presses (use if, not elif, for simultaneous presses)
         if button_up == 1:
-            actions["head_motor_2.pos"] = degree_step
-        elif button_down == 1:
-            actions["head_motor_2.pos"] = -degree_step
-        else:
-            actions["head_motor_2.pos"] = 0.0
-            
+            self.head_target_positions["head_motor_2"] += self.head_degree_step
+        if button_down == 1:
+            self.head_target_positions["head_motor_2"] -= self.head_degree_step
         if button_left == 1:
-            actions["head_motor_1.pos"] = degree_step
-        elif button_right == 1:
-            actions["head_motor_1.pos"] = -degree_step
-        else:
-            actions["head_motor_1.pos"] = 0.0
-            
-        return actions
+            self.head_target_positions["head_motor_1"] += self.head_degree_step
+        if button_right == 1:
+            self.head_target_positions["head_motor_1"] -= self.head_degree_step
+        
+        # Clamp to reasonable limits
+        self.head_target_positions["head_motor_1"] = np.clip(
+            self.head_target_positions["head_motor_1"], -60.0, 60.0
+        )
+        self.head_target_positions["head_motor_2"] = np.clip(
+            self.head_target_positions["head_motor_2"], -60.0, 60.0
+        )
+        
+        # Return current target positions (NOT increments or 0)
+        # This ensures position is maintained even when no buttons are pressed
+        return {
+            "head_motor_1.pos": self.head_target_positions["head_motor_1"],
+            "head_motor_2.pos": self.head_target_positions["head_motor_2"],
+        }
 
     def disconnect(self) -> None:
         """Disconnect from Joy-Con controllers"""
