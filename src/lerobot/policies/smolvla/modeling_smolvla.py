@@ -482,8 +482,14 @@ class SmolVLAPolicy(PreTrainedPolicy):
         """
         images = []
         img_masks = []
-        present_img_keys = [key for key in self.config.image_features if key in batch]
-        missing_img_keys = [key for key in self.config.image_features if key not in batch]
+
+        if not self.config.image_features and any('image' in key for key in batch.keys()):
+            image_features = [key for key in batch.keys() if 'image' in key]
+        else:
+            image_features = self.config.image_features
+
+        present_img_keys = [key for key in image_features if key in batch]
+        missing_img_keys = [key for key in image_features if key not in batch]
 
         if len(present_img_keys) == 0:
             raise ValueError(

@@ -1,6 +1,7 @@
 import time
 import numpy as np
 import math
+import logging
 
 from lerobot.datasets.lerobot_dataset import LeRobotDataset
 from lerobot.datasets.utils import hw_to_dataset_features
@@ -12,6 +13,9 @@ from lerobot.utils.utils import log_say
 from lerobot.utils.control_utils import init_keyboard_listener
 from lerobot.utils.visualization_utils import _init_rerun, log_rerun_data
 from lerobot.cameras.opencv.configuration_opencv import OpenCVCameraConfig
+DEBUG_TELEOP_PRINT = False
+
+logger = logging.getLogger(__name__)
 
 
 def move_robot_to_zero_position(robot, teleop: JoyConTeleop, head_pitch_angle: float = -30.0):
@@ -29,20 +33,25 @@ def move_robot_to_zero_position(robot, teleop: JoyConTeleop, head_pitch_angle: f
     """
     # Reset teleop positions to their offsets (zero position)
     if teleop.joycon_left is not None:
-        teleop.joycon_left.position = teleop.joycon_left.offset_position_m.copy()
+        teleop.joycon_left.position = teleop.joycon_left.left_offset_position_m.copy()
         # Reset orientation (roll, pitch, yaw) to zero
-        teleop.joycon_left.orientation_rad = teleop.joycon_left.offset_euler_rad.copy()
+        teleop.joycon_left.orientation_rad = teleop.joycon_left.left_offset_euler_rad.copy()
+        # Reset gripper to closed position
+        teleop.joycon_left.gripper_state = teleop.joycon_left.gripper_close  # 0.0 for closed
         
     if teleop.joycon_right is not None:
-        teleop.joycon_right.position = teleop.joycon_right.offset_position_m.copy()
+        teleop.joycon_right.position = teleop.joycon_right.right_offset_position_m.copy()
         # Reset orientation (roll, pitch, yaw) to zero
-        teleop.joycon_right.orientation_rad = teleop.joycon_right.offset_euler_rad.copy()
+        teleop.joycon_right.orientation_rad = teleop.joycon_right.right_offset_euler_rad.copy()
+        # Reset gripper to closed position
+        teleop.joycon_right.gripper_state = teleop.joycon_right.gripper_close  # 0.0 for closed
     
     # Set head zero position and update target positions
     # This ensures the head position is maintained in subsequent get_action() calls
     teleop.set_head_zero_position(head_pitch=head_pitch_angle, head_yaw=0.0)
     
     # Get the action from teleop (which now reflects zero position with correct head angle)
+    # The gripper_state has been reset to closed (0.0) above
     action = teleop.get_action()
     
     # Remove episode control signal if present
@@ -51,7 +60,9 @@ def move_robot_to_zero_position(robot, teleop: JoyConTeleop, head_pitch_angle: f
     
     # Send the zero position action to robot
     robot.send_action(action)
-    log_say(f"Robot moved to zero position (head pitch: {head_pitch_angle}°)")
+    robot.send_action(action)  # Send again to ensure it takes effect
+    robot.send_action(action)  # Send a third time for reliability
+    log_say(f"Robot moved to zero position")
     
 
 
@@ -90,6 +101,27 @@ def record_loop_with_joycon_episode_control(
 
         # Get action from Joy-Con teleop
         action = teleop.get_action()
+
+        # Debug: print teleop posture (position + euler) for left/right
+        if DEBUG_TELEOP_PRINT:
+            try:
+                if teleop.joycon_left is not None:
+                    lp = np.array(teleop.joycon_left.position)
+                    lo = np.array(teleop.joycon_left.orientation_rad)
+                    print(f"[TELEOP LEFT] pos={np.round(lp,3)} ori_deg={np.round(np.degrees(lo),1)}")
+                else:
+                    print("[TELEOP LEFT] not connected")
+            except Exception as _e:
+                print(f"[TELEOP LEFT] read error: {_e}")
+            try:
+                if teleop.joycon_right is not None:
+                    rp = np.array(teleop.joycon_right.position)
+                    ro = np.array(teleop.joycon_right.orientation_rad)
+                    print(f"[TELEOP RIGHT] pos={np.round(rp,3)} ori_deg={np.round(np.degrees(ro),1)}")
+                else:
+                    print("[TELEOP RIGHT] not connected")
+            except Exception as _e:
+                print(f"[TELEOP RIGHT] read error: {_e}")
         
         # Check for episode control signals from Joy-Con
         if "_episode_control" in action:
@@ -99,7 +131,7 @@ def record_loop_with_joycon_episode_control(
             
             if episode_control == "next":
                 # Right Joy-Con "+" button: move to next episode
-                log_say("Next episode requested via Joy-Con '+' button")
+                # log_say("Next episode requested via Joy-Con '+' button")
                 break
             elif episode_control == "restart":
                 # Left Joy-Con "-" button: restart/rerecord current episode
@@ -129,20 +161,11 @@ def record_loop_with_joycon_episode_control(
 
 NUM_EPISODES = 5
 FPS = 30
-EPISODE_TIME_SEC = 50
+EPISODE_TIME_SEC = 1000
 RESET_TIME_SEC = 5
 # TODO
-TASK_DESCRIPTION = "pick the wine bottle and pour wine into the cup"
+TASK_DESCRIPTION = "Pick up the lemon and place in the pink cup"
 
-# 头部俯仰角度配置 (Head pitch angle configuration)
-# head_motor_2 控制俯仰 (pitch: up/down tilt)
-# 负值 = 往下看 (look down), 正值 = 往上看 (look up)
-# 推荐范围: -60° 到 +60°
-# 示例值:
-#   -30°: 轻微往下看工作台 (slightly look down at workspace)
-#   -45°: 明显往下看工作台 (clearly look down at workspace)
-#   -60°: 大角度往下看 (steep look down)
-#   0°:   水平看 (look straight)
 HEAD_PITCH_ANGLE = 55.0  # 默认往下看 30 度，可根据实际工作台高度调整
 
 # 选择要使用的相机（注释掉不需要的相机）
@@ -165,25 +188,6 @@ joycon_config = JoyconTeleopConfig(
     arm_selection="both",  # "left", "right", "both" - 控制哪个手臂
 )
 
-# 单臂控制示例配置（如果只要录制左臂数据）:
-# joycon_config = JoyconTeleopConfig(
-#     device="both",
-#     use_arm_control=True,
-#     use_gripper=True,
-#     use_base_control=False,  # 单臂时可能不需要底盘控制
-#     use_head_control=False,
-#     arm_selection="left",  # 只控制左臂
-# )
-
-# 或者只控制右臂:
-# joycon_config = JoyconTeleopConfig(
-#     device="both",
-#     use_arm_control=True, 
-#     use_gripper=True,
-#     use_base_control=False,
-#     use_head_control=False,
-#     arm_selection="right",  # 只控制右臂
-# )
 joycon_teleop = JoyConTeleop(joycon_config)
 
 # Configure the dataset features
@@ -193,7 +197,7 @@ dataset_features = {**action_features, **obs_features}
 
 # Create the dataset
 dataset = LeRobotDataset.create(
-    repo_id="Keith-Luo/pick_wine_bottle_and_pour_5",
+    repo_id="Keith-Luo/pick_cherry_and_place_6",
     fps=FPS,
     features=dataset_features,
     robot_type=robot.name,
